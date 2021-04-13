@@ -59,9 +59,7 @@ class Model(nn.Module):
     def train_model(self, batch, optimizer, gamma, loss_fn):
         s, a, r, next_s, next_t = batch.s, batch.a, batch.r, batch.ns, batch.nt
         q_s, q_ns = self(torch.cat([s, next_s], dim=0)).chunk(2, dim=0)
-
         # 현재 네트워크가 argmax q(s', )를 선택하는 것에 대한 역전파를 받음.
-        # 안해도 잘 되지만 하는게 좀 더 좋은듯하다.
 
         argmax_q_ns = q_ns.argmax(dim=1, keepdim=True)
         # argmax_q_ns = argmax_q_ns.detach()

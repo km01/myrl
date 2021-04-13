@@ -51,7 +51,7 @@ if __name__ == '__main__':
                 duration.append(lifespan[i][-1])
                 lifespan[i].append(0)
 
-            if lifespan[i][-1] > 0:  # 500일때 버려서 실제 터미널이 아닌데 터미널이라고 하는 데이터를 걸러냄.
+            if lifespan[i][-1] > 0:  # 500일때 버림
                 memory.push(s[i], a[i], r[i], s_gotten[i], done[i])
 
         if frame_count > initial_exploration:
