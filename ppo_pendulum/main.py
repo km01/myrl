@@ -1,6 +1,6 @@
 from common.multiprocessing_env import SubprocVecEnv, make_env
 import torch.optim as optim
-from model import *
+from ppo_pendulum import PendulumPPO2
 from utils import *
 from memory import Memory
 import warnings
@@ -14,23 +14,20 @@ n_steps = 32
 gamma = 0.9
 tau = 0.5
 
-num_samples = 1000
+num_samples = num_envs * n_steps
 batch_size = 128
 ppo_epoch = 10
-memory_size = 5000
+memory_size = 1000
 iteration = 2000
 
-actor_lr = 2e-5
-critic_lr = 1e-4
 max_grad_norm = 0.5
-
 clip_param = 0.2
+w_actor = 0.1
 
-actor = Actor()
-critic = Critic()
-a_solver = optim.Adam(actor.parameters(), lr=actor_lr)
-c_solver = optim.Adam(critic.parameters(), lr=critic_lr)
-
+w_entropy = w_actor * 0.001
+learning_rate = 3e-4
+agent = PendulumPPO2()
+solver = optim.Adam(agent.parameters(), lr=learning_rate)
 
 if __name__ == '__main__':
     envs = SubprocVecEnv([make_env(env_name) for i in range(num_envs)])
@@ -43,30 +40,30 @@ if __name__ == '__main__':
         # sampling
         n = 0
         while num_samples > n:
-            obs_gotten, *info = sample_n_step(obs_gotten, actor, envs, n_steps)
-            ob_env, act, rew, done, loc, scale = info
+            ob_env_now, trans, probs = agent.sample_n_step(obs_gotten, envs, n_steps)
+            ob_env, act, rew, done = trans
             rew = (rew + 8.) / 8.
-            gae, val = compute_gae(ob_env, rew, done, obs_gotten, critic, gamma, tau)
-            memory.push_n_step_samples(ob_env, act, gae, val, loc, scale)
+            gae, val = agent.compute_gae(ob_env, rew, done, ob_env_now, gamma, tau)
+            memory.push_n_step_samples(ob_env, act, gae, val, *probs)
             n += num_envs * n_steps
 
         # learning
-        a_loss, c_loss = ppo_train(memory,
-                                   batch_size,
-                                   ppo_epoch,
-                                   actor,
-                                   critic,
-                                   a_solver,
-                                   c_solver,
-                                   clip_param,
-                                   max_grad_norm)
+        a_loss, c_loss = agent.ppo_train(memory,
+                                         batch_size,
+                                         ppo_epoch,
+                                         solver,
+                                         clip_param,
+                                         w_actor,
+                                         w_entropy,
+                                         max_grad_norm)
 
         if frame_count % 10 == 0:
-            test_gains.append(np.mean([test_env(env_name, actor) for _ in range(10)]))
+            test_gains.append(np.mean([test_env(env_name, agent) for _ in range(10)]))
             print('[{}/{}]\taverage reward: {}'.format(frame_count, iteration, test_gains[-1]))
+            render_simulation(env_name, agent)
 
         frame_count += 1
 
     envs.close()
     plot_array(test_gains, 'frame', 'gain')
-    render_simulation(env_name, actor)
+    render_simulation(env_name, agent)

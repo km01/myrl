@@ -21,7 +21,8 @@ def plot_array(arr, x_label, y_label):
     plt.show()
 
 
-def render_simulation(env_name, actor):
+@torch.no_grad()
+def render_simulation(env_name, agent):
     env = gym.make(env_name)
     with torch.no_grad():
         ob = env.reset()
@@ -29,26 +30,28 @@ def render_simulation(env_name, actor):
             env.render()
             time.sleep(0.02)
             ob_in = torch.FloatTensor([ob])
-            act, _ = actor(ob_in)
-            act.clamp_(-2.0, 2.0).squeeze(-1).item()
-            ob, rew, done, _ = env.step(act)
+            act, _ = agent.response(ob_in, True)
+            real_action = agent.to_real_action(act).squeeze(0).numpy()
+            ob, rew, done, _ = env.step(real_action)
             if done:
                 break
     env.close()
 
 
-def test_env(env_name, actor):
+@torch.no_grad()
+def test_env(env_name, agent):
     env = gym.make(env_name)
-    gain = 0.0
+    reward_sum = 0.0
     with torch.no_grad():
         ob = env.reset()
         while True:
             ob_in = torch.FloatTensor([ob])
-            act, _ = actor(ob_in)
-            act.clamp_(-2.0, 2.0).squeeze(-1).item()
-            ob, rew, done, _ = env.step(act)
-            gain += rew
+            act, _ = agent.response(ob_in, True)
+
+            real_action = agent.to_real_action(act).squeeze(0).numpy()
+            ob, rew, done, _ = env.step(real_action)
+            reward_sum += rew
             if done:
                 break
     env.close()
-    return gain
+    return reward_sum
