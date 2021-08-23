@@ -171,7 +171,7 @@ def sample_episode(memory, env, num_samples):
 
         obs, done, life_span = env.reset(), False, 0
         while not done:
-            act = env.action_space.sample()
+            act = tr.inv(env.action_space.sample())
             obs_next, rew, done, _ = env.step(tr(act))
             life_span += 1
             sample_count += 1
