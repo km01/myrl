@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import math
+import gym
 
 
 def log_normal(x, loc, scale):
@@ -127,17 +128,16 @@ class Cat(object):
         return action
 
 
-def policy_selector(env, tanh_if_continuous=False):
-    if env.action_space.__class__.__name__ == 'Discrete':
-        policy_param_size = env.action_space.n
-        policy_distribution = Cat
+def get_proper_policy_class(env):
+    if type(env.action_space) == gym.spaces.box.Box:
+        policy_class = Gaussian
+        num_params = env.action_space.shape[0] * 2
+
+    elif type(env.action_space) == gym.spaces.discrete.Discrete:
+        policy_class = Cat
+        num_params = env.action_space.n
 
     else:
-        policy_param_size = env.action_space.shape[0] * 2
-        if tanh_if_continuous:
-            policy_distribution = TanhGaussian
+        raise NotImplementedError
 
-        else:
-            policy_distribution = Gaussian
-
-    return policy_param_size, policy_distribution
+    return policy_class, num_params

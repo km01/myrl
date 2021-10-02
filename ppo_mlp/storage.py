@@ -56,4 +56,3 @@ if __name__ == '__main__':
 
     data = experience.fetch(16)
     print(data['observation'])
-

@@ -1,22 +1,17 @@
 import numpy as np
-from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+# from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env.subproc_vec_env import SubprocVecEnv
 import gym
 
 
-def make_env(env_name, rescaling_action):
-
+def make_env(env_name):
     def _thunk():
-
         env = gym.make(env_name)
         env = gym.wrappers.TimeLimit(env)
-        if env.action_space.__class__.__name__ != 'Discrete':
-            if rescaling_action:
-                # gym.wrappers.
-                env = gym.wrappers.RescaleAction(env, -1., 1.)
-                # env = NormalizeReward(env)
+        if type(env.action_space) == gym.spaces.box.Box:
+            env = gym.wrappers.RescaleAction(env, -1., 1.)
 
         return env
-
     return _thunk
 
 
@@ -26,17 +21,16 @@ def is_truncated(infos):
     return truncated
 
 
-def make_vec_env(env_name, num_env, rescaling_action=True):
-    env = [make_env(env_name, rescaling_action) for _ in range(num_env)]
+def make_vec_env(env_name, num_env):
+    env = [make_env(env_name) for _ in range(num_env)]
     return SubprocVecEnv(env)
 
 
 def make_test_env(env_name, rescaling_action=True):
     env = gym.make(env_name)
     env = gym.wrappers.TimeLimit(env)
-    if env.action_space.__class__.__name__ != 'Discrete':
-        if rescaling_action:
-            env = gym.wrappers.RescaleAction(env, -1., 1.)
+    if type(env.action_space) == gym.spaces.box.Box:
+        env = gym.wrappers.RescaleAction(env, -1., 1.)
 
     return env
 
@@ -44,16 +38,18 @@ def make_test_env(env_name, rescaling_action=True):
 class RunningMeanStd:
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
     # -> It's indeed batch normalization. :D
-    def __init__(self, epsilon=1e-4, shape=()):
-        self.mean = np.zeros(shape, 'float64')
-        self.var = np.ones(shape, 'float64')
-        self.count = epsilon
+    def __init__(self, activate=True):
+        self.mean = np.zeros((), 'float64')
+        self.var = np.ones((), 'float64')
+        self.count = 1e-4
+        self.activate = activate
 
     def update(self, x):
-        batch_mean = np.mean(x, axis=0)
-        batch_var = np.var(x, axis=0)
-        batch_count = x.shape[0]
-        self.update_from_moments(batch_mean, batch_var, batch_count)
+        if self.activate:
+            batch_mean = np.mean(x, axis=0)
+            batch_var = np.var(x, axis=0)
+            batch_count = x.shape[0]
+            self.update_from_moments(batch_mean, batch_var, batch_count)
 
     def update_from_moments(self, batch_mean, batch_var, batch_count):
 
@@ -61,8 +57,11 @@ class RunningMeanStd:
             self.mean, self.var, self.count, batch_mean, batch_var, batch_count)
 
     def normalize(self, x):
-        return (x - self.mean) / np.sqrt(self.var)
-        # return x / np.sqrt(self.var)
+        if self.activate:
+            return (x - self.mean) / np.sqrt(self.var)
+            # return x / np.sqrt(self.var)
+        else:
+            return x
 
 
 def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, batch_count):

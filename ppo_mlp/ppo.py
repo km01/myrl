@@ -1,7 +1,8 @@
 import torch
 import torch.optim as optim
 import torch.nn as nn
-from model import compute_ret
+# from model import compute_ret
+from rl_utils import compute_ret
 
 
 class PPOSolver(object):
@@ -51,6 +52,12 @@ class PPOSolver(object):
                                   self.gamma,
                                   self.lamda).detach()
 
+        data['obs'] = data['obs'].flatten(0, 1)
+        data['act'] = data['act'].flatten(0, 1)
+        data['val'] = data['val'].flatten(0, 1)
+        data['ret'] = data['ret'].flatten(0, 1)
+        data['log_prob'] = data['log_prob'].flatten(0, 1)
+
         num_data = data['val'].size()[0]
 
         stats = {'value_loss': 0., 'performance': 0., 'entropy': 0.}
@@ -71,6 +78,7 @@ class PPOSolver(object):
             self.optimizer.zero_grad()
 
             policy, val = actor_critic(obs_data)
+
             ratio = torch.exp(policy.log_prob(act_data) - log_prob_data)
             surr1 = adv * ratio
             surr2 = adv * torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
