@@ -1,73 +1,46 @@
 import torch
 import numpy as np
-import torch.nn.functional as F
 import math
-import gym
+import torch.nn.functional as F
 
 
 def log_normal(x, loc, scale):
-    return - scale.log() - 0.5 * (np.log(2. * np.pi) + ((x - loc) / scale).pow(2.))
+    var = scale.pow(2.)
+    return -0.5 * (torch.log(2. * math.pi * var) + (x - loc).pow(2.) / var)
 
 
-class TanhGaussian(object):  # not good at A2C/PPO
+class Policy(object):
     def __init__(self, param):
         self.param = param
-        self.loc, self.scale = param.chunk(2, dim=-1)
-        self.scale = F.softplus(self.scale)
 
-    def sample(self, sample=True):
+    def log_prob(self, x, param_grad=True):
+        raise NotImplementedError
 
-        if sample:
-            noise = self.scale * torch.randn_like(self.scale)
-            y = (self.loc + noise).tanh()
+    def sample(self, det=False):
+        raise NotImplementedError
 
-        else:
-            y = self.loc.tanh()
-        return y
-
-    @staticmethod
-    def inverse_tanh(y):
-        return 0.5 * (y.log1p() - (-y).log1p())
-
-    def log_prob(self, y, param_grad=True):
-        y = y.clamp(-0.99999, 0.99999)
-        x = self.inverse_tanh(y)
-
-        if param_grad:
-            log_px = log_normal(x, self.loc, self.scale)
-
-        else:
-            log_px = log_normal(x, self.loc.clone().detach(), self.scale.clone().detach())
-
-        log_jac = 2. * (math.log(2.) - x - F.softplus(-2. * x))
-        log_py = log_px - log_jac
-
-        return log_py
-
-    @staticmethod
-    def env_action(act):
-        action = act.cpu().detach().numpy()
-        return action
+    def as_env(self, act):
+        raise NotImplementedError
 
 
-class Gaussian(object):
+class Gaussian(Policy):
     def __init__(self, param):
-        self.param = param
-        self.loc, self.scale = param.chunk(2, dim=-1)
+        super().__init__(param)
+        self.loc, self.scale = self.param.chunk(2, dim=-1)
         self.scale = F.softplus(self.scale)
 
-    def sample(self, sample=True):
+    def sample(self, det=False):
 
-        if sample:
+        if det:
+            x = self.loc
+
+        else:
             noise = self.scale * torch.randn_like(self.scale)
             x = self.loc + noise
 
-        else:
-            x = self.loc
         return x
 
     def log_prob(self, x, param_grad=True):
-
         if param_grad:
             log_px = log_normal(x, self.loc, self.scale)
 
@@ -76,11 +49,65 @@ class Gaussian(object):
 
         return log_px
 
-    @staticmethod
-    def env_action(act):
+    def as_env(self, act):
         act = act.cpu().detach().numpy()
-        action = np.tanh(act)
-        return action
+        env_act = np.tanh(act)
+        return env_act
+
+
+# def inverse_tanh(y):
+#
+#
+#     return 0.5 * (y.log1p() - (-y).log1p())
+
+
+def inverse_tanh(x):
+    eps = 1e-10
+
+    x1p = (x + 1.).clamp(eps, None)
+    mx1p = (-x + 1.).clamp(eps, None)
+
+    return 0.5 * (x1p.log() - mx1p.log())
+
+
+class TanhGaussian(Policy):
+
+    def __init__(self, param):
+        super().__init__(param)
+        self.loc, self.scale = self.param.chunk(2, dim=-1)
+        self.scale = F.softplus(self.scale)
+
+    def sample(self, det=False):
+
+        if det:
+            x = self.loc.tanh()
+
+        else:
+            noise = self.scale * torch.randn_like(self.scale)
+            x = (self.loc + noise).tanh()
+
+        return x
+
+    def log_prob(self, x, param_grad=True):
+
+        z = inverse_tanh(x)
+
+        if param_grad:
+            log_pz = log_normal(z, self.loc, self.scale)
+
+        else:
+            log_pz = log_normal(z, self.loc.clone().detach(), self.scale.clone().detach())
+
+        #  https://github.com/denisyarats/pytorch_sac/blob/master/agent/actor.py
+        # log |d tanh(z) / dz| = log |1 - tanh(z)^2| =
+
+        log_jac = 2. * (math.log(2.) - z - F.softplus(-2. * z))
+        log_px = log_pz - log_jac
+        return log_px
+
+    def as_env(self, act):
+        env_act = act.cpu().detach().numpy()
+        return env_act
 
 
 def cat_sample(p, onehot=False):
@@ -102,10 +129,10 @@ def cat_max(p, onehot=False):
     return x
 
 
-class Cat(object):
+class Cat(Policy):
     def __init__(self, param):
-        self.param = param
-        self.logits = param.log_softmax(dim=-1)
+        super().__init__(param)
+        self.logits = self.param.log_softmax(dim=-1)
         self.probs = self.logits.exp()
 
     def log_prob(self, x, param_grad=True):
@@ -114,30 +141,14 @@ class Cat(object):
         else:
             return (x * self.logits.clone().detach()).sum(dim=-1, keepdim=True)
 
-    def sample(self, sample=True):
-        if sample:
-            return cat_sample(self.probs, onehot=True)
-
-        else:
+    def sample(self, det=False):
+        if det:
             return cat_max(self.probs, onehot=True)
 
-    @staticmethod
-    def env_action(act):
-        action = torch.argmax(act, dim=-1)
-        action = action.cpu().detach().numpy()
-        return action
+        else:
+            return cat_sample(self.probs, onehot=True)
 
-
-def get_proper_policy_class(env):
-    if type(env.action_space) == gym.spaces.box.Box:
-        policy_class = Gaussian
-        num_params = env.action_space.shape[0] * 2
-
-    elif type(env.action_space) == gym.spaces.discrete.Discrete:
-        policy_class = Cat
-        num_params = env.action_space.n
-
-    else:
-        raise NotImplementedError
-
-    return policy_class, num_params
+    def as_env(self, act):
+        act = torch.argmax(act, dim=-1)
+        env_act = act.cpu().detach().numpy()
+        return env_act

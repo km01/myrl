@@ -48,11 +48,12 @@ class OnlineRolloutStorage(object):
 
 
 if __name__ == '__main__':
-    n_step = 17
+    n_step = 8
     experience = OnlineRolloutStorage(maxlen=n_step)
-    for t in range(41):
+    for t in range(33):
         experience.push({'observation': np.array([t]),
                          'done': np.array(t % 2).astype(np.bool)})
 
-    data = experience.fetch(16)
-    print(data['observation'])
+    data = experience.fetch()
+    for i in range(len(data['observation'])):
+        print(i, data['observation'][i])

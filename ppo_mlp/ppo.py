@@ -1,7 +1,6 @@
 import torch
 import torch.optim as optim
 import torch.nn as nn
-# from model import compute_ret
 from rl_utils import compute_ret
 
 
@@ -35,7 +34,7 @@ class PPOSolver(object):
 
     def update(self, actor_critic, experience):
 
-        data, device = experience.fetch(), actor_critic.device
+        data, device = experience.fetch(), actor_critic.device()
 
         data['obs'] = torch.FloatTensor(data['obs']).to(device)
         data['act'] = torch.FloatTensor(data['act']).to(device)
