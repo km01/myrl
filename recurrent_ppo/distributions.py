@@ -4,14 +4,18 @@ import math
 import torch.nn.functional as F
 
 
+LOG_EPS = 1e-11
+
+
 def log_normal(x, loc, scale):
-    return - scale.log() - 0.5 * (np.log(2. * math.pi) + (x - loc).pow(2.) / scale.pow(2.))
+    return - (scale + LOG_EPS).log() - 0.5 * ((x - loc) / (scale + LOG_EPS)).pow(2.) - 0.5 * np.log(2. * math.pi)
 
 
 def kld_normal(loc1, s1, loc2, s2):  # KL(p1||p2)
-
-    kld = s2.log() - s1.log() + ((s1.pow(2.) + (loc1 - loc2).pow(2.)) / (s2.pow(2.).mul(2.))) - 0.5
-    return kld.sum(dim=-1, keepdim=True)
+    s1 = s1.clamp(LOG_EPS, None)
+    s2 = s2.clamp(LOG_EPS, None)
+    kld = s2.log() - s1.log() + 0.5 * ((s1.pow(2.) + (loc1 - loc2).pow(2.)).sqrt() / s2).pow(2.) - 0.5
+    return kld
 
 
 class Distribution(object):
@@ -26,6 +30,9 @@ class Distribution(object):
 
 
 class Gaussian(Distribution):
+    continuous = True
+    name = 'Gaussian'
+
     def __init__(self, param):
         super().__init__(param)
         self.loc, self.scale = self.param.chunk(2, dim=-1)
@@ -59,19 +66,20 @@ class Gaussian(Distribution):
 
 
 def inverse_tanh(x):
-    eps = 1e-5
-    x1p = (x + 1.).clamp(eps, None)
-    mx1p = (-x + 1.).clamp(eps, None)
+    x1p = (x + 1.).clamp(LOG_EPS, None)
+    mx1p = (-x + 1.).clamp(LOG_EPS, None)
     z = 0.5 * (x1p.log() - mx1p.log())
     return z
 
 
 class TanhGaussian(Distribution):
+    continuous = True
+    name = 'TanhGaussian'
 
     def __init__(self, param):
         super().__init__(param)
         self.loc, self.scale = self.param.chunk(2, dim=-1)
-        self.scale = F.softplus(self.scale)
+        self.scale = F.softplus(self.scale)  # softplus(x) = log(1 + exp(x))
 
     def sample(self, det=False):
 
@@ -96,7 +104,6 @@ class TanhGaussian(Distribution):
 
         #  https://github.com/denisyarats/pytorch_sac/blob/master/agent/actor.py
         # log |d tanh(z) / dz| = log |1 - tanh(z)^2| =
-
         log_jac = 2. * (math.log(2.) - z - F.softplus(-2. * z))
         log_px = log_pz - log_jac
         return log_px.sum(dim=-1, keepdim=True)
@@ -127,6 +134,9 @@ def cat_max(p, onehot=False):
 
 
 class Cat(Distribution):
+    continuous = False
+    name = 'Cat'
+
     def __init__(self, param):
         super().__init__(param)
         self.logits = self.param.log_softmax(dim=-1)
@@ -156,6 +166,9 @@ class Cat(Distribution):
 
 
 class MultiCat(Distribution):
+    continuous = False
+    name = 'MultiCat'
+
     def __init__(self, num_partition, param):
         super().__init__(param)
         self.batch_size = param.size()[0]

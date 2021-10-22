@@ -1,5 +1,4 @@
 import torch
-from model import ActorCritic
 from env_utils import make_vec_env, is_truncated
 from rl_utils import get_proper_policy_class, RunningMeanStd
 from storage import OnlineRolloutStorage
@@ -8,7 +7,6 @@ from rppo import Rppo
 from logger import Logger
 import numpy as np
 from rppo_solver import RppoSolver
-
 
 if __name__ == '__main__':
     # env_name = 'InvertedDoublePendulum-v2'
@@ -23,7 +21,7 @@ if __name__ == '__main__':
 
     num_envs = 16
     max_frame = 100000
-    n_steps = 8
+    n_steps = 16
 
     cuda = True
 
@@ -41,26 +39,26 @@ if __name__ == '__main__':
     obs_enc_size = 128
 
     act_size = action_size
-    act_enc_size = 16
     policy_param_size = num_policy_param
     policy_class = policy_class
 
     belief_size = 128
 
-    a2c_input_size = 128
+    state_size = 128
     a2c_hidden_size = 256
     a2c_shared_layers = 3
     a2c_actor_layers = 3
     a2c_critic_layers = 3
+    act_enc_size = 32
 
     agent = Rppo(obs_size=obs_size,
                  obs_enc_size=obs_enc_size,
-
+                 act_size=action_size,
+                 act_enc_size=act_enc_size,
                  policy_param_size=policy_param_size,
                  policy_class=policy_class,
-
                  belief_size=belief_size,
-                 a2c_input_size=a2c_input_size,
+                 state_size=state_size,
                  a2c_hidden_size=a2c_hidden_size,
                  a2c_shared_layers=a2c_shared_layers,
                  a2c_actor_layers=a2c_actor_layers,
@@ -144,8 +142,7 @@ if __name__ == '__main__':
                 print('test | avg lifespan: {:.2f}'.format(te_life))
                 print('{:-^50}'.format(''))
 
-        loss_stats = solver.update_calibrate(agent, experience)
-        # loss_stats = solver.update(agent, experience)
+        loss_stats = solver.update(agent, experience)
         logger.update_loss_stats(loss_stats)
 
     env.close()
